@@ -1,4 +1,4 @@
 pkg/
 api.key
 *-handin.tar.gz
-.ds-store
+.DS_Store
