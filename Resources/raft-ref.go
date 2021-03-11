@@ -1,5 +1,6 @@
 package raft
 
+
 //
 // this is an outline of the API that raft must expose to
 // the service (or tester). see comments below for
@@ -20,10 +21,10 @@ package raft
 import (
 	"math/rand"
 	"sync"
+    "sync/atomic"
 	"time"
 )
-import "sync/atomic"
-import "../labrpc"
+//import "../labrpc"
 
 // import "bytes"
 // import "../labgob"
