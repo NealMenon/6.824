@@ -16,7 +16,7 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 	return
 }
 
-func (rf *Raft) Debug(format string, a ...interface{}) (n int, err error) {
+func (rf *Raft) Debug(format string, a ...interface{}) {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	if enabled {
 		format = fmt.Sprintf("[%v]\t", rf.me) + format
