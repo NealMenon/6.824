@@ -17,14 +17,22 @@ package raft
 //   in the same server.
 //
 
-import "sync"
-import "sync/atomic"
+import (
+	"math/rand"
+	//"math/rand"
+	"sync"
+	"sync/atomic"
+	"time"
+)
 import "../labrpc"
 
-// import "bytes"
-// import "../labgob"
+const (
+	leaderState    = 0
+	followerState  = 1
+	candidateState = 2
+)
 
-
+type State int
 
 //
 // as each Raft peer becomes aware that successive log entries are
@@ -43,6 +51,50 @@ type ApplyMsg struct {
 	CommandIndex int
 }
 
+// Log Entry
+type LogEntry struct {
+	Term    int
+	Command []byte
+}
+
+//
+// example RequestVote RPC arguments structure.
+// field names must start with capital letters!
+//
+type RequestVoteArgs struct {
+	// Your data here (2A, 2B).
+	Term         int
+	CandidateId  int
+	LastLogIndex int
+	LastLogTerm  int
+}
+
+//
+// example RequestVote RPC reply structure.
+// field names must start with capital letters!
+//
+type RequestVoteReply struct {
+	// Your data here (2A).
+	Term        int
+	VoteGranted bool
+}
+
+// Arguments while attempting AppendEntry RPC
+type AppendEntryArgs struct {
+	Term             int
+	LeaderID         int
+	PreviousLogIndex int
+	PreviousLogTerm  int
+	LogEntry         []byte
+	Index            int
+}
+
+// Reply from attempting AppendEntry RPC
+type AppendEntryReply struct {
+	Term    int
+	Success bool
+}
+
 //
 // A Go object implementing a single Raft peer.
 //
@@ -57,6 +109,42 @@ type Raft struct {
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
+	// persistent  on all servers
+	currentTerm int
+	votedFor    int
+	log         []LogEntry
+
+	// volatile on all servers
+	commitIndex int
+	lastApplied int
+	state       State
+	active      chan bool // meant for heartbeat
+
+	// volatile on leaders
+	nextIndex  []int
+	matchIndex []int
+}
+
+func (rf *Raft) heartbeat(active chan bool) {
+	for !rf.killed() {
+		rand.Seed(time.Now().UnixNano())
+		timeout := time.Duration(rand.Intn(150)+100) * time.Millisecond
+		select {
+		case <-active:
+			rf.Debug("Still alive")
+		case <-time.After(timeout):
+			// timedout
+			rf.Debug("Timed out")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func (rf *Raft) appendEntry(active chan bool) {
+	for {
+		time.Sleep(time.Duration(rand.Intn(150)+50) * time.Millisecond)
+		active <- true
+	}
 }
 
 // return currentTerm and whether this server
@@ -85,7 +173,6 @@ func (rf *Raft) persist() {
 	// rf.persister.SaveRaftState(data)
 }
 
-
 //
 // restore previously persisted state.
 //
@@ -106,25 +193,6 @@ func (rf *Raft) readPersist(data []byte) {
 	//   rf.xxx = xxx
 	//   rf.yyy = yyy
 	// }
-}
-
-
-
-
-//
-// example RequestVote RPC arguments structure.
-// field names must start with capital letters!
-//
-type RequestVoteArgs struct {
-	// Your data here (2A, 2B).
-}
-
-//
-// example RequestVote RPC reply structure.
-// field names must start with capital letters!
-//
-type RequestVoteReply struct {
-	// Your data here (2A).
 }
 
 //
@@ -168,7 +236,6 @@ func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *Reques
 	return ok
 }
 
-
 //
 // the service using Raft (e.g. a k/v server) wants to start
 // agreement on the next command to be appended to Raft's log. if this
@@ -189,7 +256,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	isLeader := true
 
 	// Your code here (2B).
-
 
 	return index, term, isLeader
 }
@@ -233,11 +299,14 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 
+	rf.active = make(chan bool)
+
 	// Your initialization code here (2A, 2B, 2C).
+	go rf.heartbeat(rf.active)
+	go rf.appendEntry(rf.active)
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
-
 
 	return rf
 }
