@@ -196,7 +196,16 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 
+	rf.currentTerm = 0
+	rf.votedFor = -1
+
+	rf.commitIndex = -1
+	rf.lastApplied = -1
+	rf.state = followerState
 	rf.active = make(chan bool)
+
+	rf.nextIndex = make([]int, 8)
+	rf.matchIndex = make([]int, 8)
 
 	// Your initialization code here (2A, 2B, 2C).
 	go rf.heartbeat()
