@@ -5,7 +5,18 @@ package raft
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	// Your code here (2A, 2B).
-	args = nil
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	rf.Debug("Voted requested by %v", args.CandidateId)
+	if rf.currentTerm > args.Term {
+		reply.VoteGranted = false
+	}
+	if rf.votedFor == -1 {
+		reply.VoteGranted = true
+		rf.currentTerm = args.Term
+		rf.Debug("Granting vote to %v for term %v", args.CandidateId, args.Term)
+	}
+	reply.Term = rf.currentTerm
 }
 
 //
@@ -37,11 +48,55 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // that the caller passes the address of the reply struct with &, not
 // the struct itself.
 //
-func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+func (rf *Raft) callRequestVote(server int, args *RequestVoteArgs) bool {
+	reply := &RequestVoteReply{}
+	rf.Debug("Requesting vote from %v", server)
 	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
 	return ok
 }
 
 func (rf *Raft) callElection() {
+	rf.mu.Lock()
+	rf.currentTerm++
+	rf.Debug("Starting election for term %v", rf.currentTerm)
+	electionTerm := rf.currentTerm
+	rf.votedFor = rf.me
+	rf.state = candidateState
 
+	args := RequestVoteArgs{
+		Term:        rf.currentTerm,
+		CandidateId: rf.me,
+	}
+
+	votes := 0
+	done := false
+	rf.mu.Unlock()
+
+	for server := 0; server < len(rf.peers); server++ {
+		if server == rf.me {
+			continue
+		}
+		go func(server int) {
+			voteGranted := rf.callRequestVote(server, &args)
+			if !voteGranted {
+				return
+			}
+			rf.mu.Lock()
+			defer rf.mu.Unlock()
+			votes++
+			rf.Debug("Got vote from %v", server)
+			if done || votes <= len(rf.peers)/2 {
+				return
+			}
+			done = true
+			if rf.currentTerm == electionTerm {
+				rf.state = leaderState
+				rf.Debug("WIN; becoming leader for term %v", rf.currentTerm)
+			}
+			rf.Debug("After election for term %v, state is %v", electionTerm, rf.state)
+			if rf.state == leaderState {
+				rf.lead()
+			}
+		}(server)
+	}
 }

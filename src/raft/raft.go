@@ -63,10 +63,10 @@ type LogEntry struct {
 //
 type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
-	Term         int
-	CandidateId  int
-	LastLogIndex int
-	LastLogTerm  int
+	Term        int
+	CandidateId int
+	//LastLogIndex int
+	//LastLogTerm  int
 }
 
 //
@@ -112,17 +112,17 @@ type Raft struct {
 	// persistent  on all servers
 	currentTerm int
 	votedFor    int
-	log         []LogEntry
+	//log         []LogEntry
 
 	// volatile on all servers
-	commitIndex int
-	lastApplied int
-	state       State
-	active      chan bool // meant for heartbeat
+	//commitIndex int
+	//lastApplied int
+	state  State
+	active chan bool // meant for heartbeat
 
 	// volatile on leaders
-	nextIndex  []int
-	matchIndex []int
+	//nextIndex  []int
+	//matchIndex []int
 }
 
 func (rf *Raft) heartbeat() {
@@ -178,6 +178,44 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
+func (rf *Raft) lead() {
+	rf.Debug("Starting leader activities")
+	for {
+		rf.active <- true
+		rf.mu.Lock()
+		args := AppendEntryArgs{
+			Term:     rf.currentTerm,
+			LeaderID: rf.me,
+		}
+		rf.mu.Unlock()
+		for server := 0; server < len(rf.peers); server++ {
+			if server == rf.me {
+				continue
+			}
+			go func(server int) {
+				ack := rf.callAppendEntries(server, &args)
+				if ack {
+					rf.active <- true
+				}
+			}(server)
+		}
+	}
+}
+func (rf *Raft) callAppendEntries(server int, args *AppendEntryArgs) bool {
+	reply := &RequestVoteReply{}
+	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	return ok
+}
+
+func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) bool {
+	rf.active <- true
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	rf.currentTerm = args.Term
+	rf.votedFor = -1
+	return true
+}
+
 //
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
@@ -199,13 +237,13 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.currentTerm = 0
 	rf.votedFor = -1
 
-	rf.commitIndex = -1
-	rf.lastApplied = -1
+	//rf.commitIndex = -1
+	//rf.lastApplied = -1
 	rf.state = followerState
 	rf.active = make(chan bool)
 
-	rf.nextIndex = make([]int, 8)
-	rf.matchIndex = make([]int, 8)
+	//rf.nextIndex = make([]int, 8)
+	//rf.matchIndex = make([]int, 8)
 
 	// Your initialization code here (2A, 2B, 2C).
 	go rf.heartbeat()
