@@ -4,7 +4,6 @@ package raft
 // example RequestVote RPC handler.
 //
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
-	// Your code here (2A, 2B).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	rf.Debug("Voted requested by %v", args.CandidateId)
@@ -12,6 +11,9 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.VoteGranted = false
 	}
 	if rf.votedFor == -1 {
+		// Your code here (2A, 2B).
+		rf.active <- true
+		rf.votedFor = args.CandidateId
 		reply.VoteGranted = true
 		rf.currentTerm = args.Term
 		rf.Debug("Granting vote to %v for term %v", args.CandidateId, args.Term)
@@ -51,8 +53,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 func (rf *Raft) callRequestVote(server int, args *RequestVoteArgs) bool {
 	reply := &RequestVoteReply{}
 	rf.Debug("Requesting vote from %v", server)
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	return ok
+	rf.peers[server].Call("Raft.RequestVote", args, reply)
+	return reply.VoteGranted
 }
 
 func (rf *Raft) callElection() {
@@ -68,10 +70,11 @@ func (rf *Raft) callElection() {
 		CandidateId: rf.me,
 	}
 
-	votes := 0
+	votes := 1
 	done := false
 	rf.mu.Unlock()
-
+	a, b := rf.GetState()
+	rf.Debug("After election start: term, state =  %v, %v", a, b)
 	for server := 0; server < len(rf.peers); server++ {
 		if server == rf.me {
 			continue
@@ -82,9 +85,8 @@ func (rf *Raft) callElection() {
 				return
 			}
 			rf.mu.Lock()
-			defer rf.mu.Unlock()
 			votes++
-			rf.Debug("Got vote from %v", server)
+			rf.Debug("Got vote from %v. total votes = %v", server, votes)
 			if done || votes <= len(rf.peers)/2 {
 				return
 			}
@@ -93,10 +95,14 @@ func (rf *Raft) callElection() {
 				rf.state = leaderState
 				rf.Debug("WIN; becoming leader for term %v", rf.currentTerm)
 			}
+			rf.mu.Unlock()
+			go rf.lead()
 			rf.Debug("After election for term %v, state is %v", electionTerm, rf.state)
-			if rf.state == leaderState {
-				rf.lead()
-			}
+			//if rf.state == leaderState {
+			//	rf.lead()
+			//} else {
+			//	rf.mu.Unlock()
+			//}
 		}(server)
 	}
 }

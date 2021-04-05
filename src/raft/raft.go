@@ -128,24 +128,23 @@ type Raft struct {
 func (rf *Raft) heartbeat() {
 	for !rf.killed() {
 		rand.Seed(time.Now().UnixNano())
-		timeout := time.Duration(rand.Intn(150)+100) * time.Millisecond
+		timeout := time.Duration(rand.Intn(250)+200) * time.Millisecond
 		select {
 		case <-rf.active:
-			rf.Debug("Still alive")
+			//rf.Debug("Still alive")
 		case <-time.After(timeout):
 			rf.Debug("Timed out, starting election")
-			rf.callElection()
+			go rf.callElection()
+			time.Sleep(50 * time.Millisecond)
 		}
-		//time.Sleep(50 * time.Millisecond)
 	}
 }
 
-func (rf *Raft) appendEntry() {
-	for {
-		//time.Sleep(time.Duration(rand.Intn(150)+50) * time.Millisecond)
-		rf.active <- true
-	}
-}
+//func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
+//	rf.active <- true
+//	rf.Debug("AppendEntry from %v", args.LeaderID)
+//	reply.Success = true
+//}
 
 // return currentTerm and whether this server
 // believes it is the leader.
@@ -154,6 +153,11 @@ func (rf *Raft) GetState() (int, bool) {
 	var term int
 	var isleader bool
 	// Your code here (2A).
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	term = rf.currentTerm
+	isleader = rf.state == leaderState
+	rf.Debug("GetState: %v, %v", term, isleader)
 	return term, isleader
 }
 
@@ -180,40 +184,48 @@ func (rf *Raft) killed() bool {
 
 func (rf *Raft) lead() {
 	rf.Debug("Starting leader activities")
-	for {
-		rf.active <- true
-		rf.mu.Lock()
-		args := AppendEntryArgs{
-			Term:     rf.currentTerm,
-			LeaderID: rf.me,
-		}
-		rf.mu.Unlock()
+	//rf.active <- true
+	rf.mu.Lock()
+	args := AppendEntryArgs{
+		Term:     rf.currentTerm,
+		LeaderID: rf.me,
+	}
+	rf.mu.Unlock()
+	_, isLeader := rf.GetState()
+	rf.Debug("Deadlock averted")
+	for !rf.killed() && isLeader {
 		for server := 0; server < len(rf.peers); server++ {
 			if server == rf.me {
 				continue
 			}
 			go func(server int) {
+				//rf.Debug("Calling AppendEntries on %v", server)
 				ack := rf.callAppendEntries(server, &args)
 				if ack {
 					rf.active <- true
 				}
 			}(server)
 		}
+		time.Sleep(90 * time.Millisecond)
 	}
 }
 func (rf *Raft) callAppendEntries(server int, args *AppendEntryArgs) bool {
-	reply := &RequestVoteReply{}
-	ok := rf.peers[server].Call("Raft.AppendEntries", args, reply)
-	return ok
+	reply := &AppendEntryReply{}
+	//rf.Debug("Sending AppendEntry on %v", server)
+	rf.peers[server].Call("Raft.AppendEntries", args, reply)
+	return reply.Success
 }
 
-func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) bool {
+//func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
+
+func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) {
 	rf.active <- true
-	rf.mu.Lock()
-	defer rf.mu.Unlock()
-	rf.currentTerm = args.Term
-	rf.votedFor = -1
-	return true
+	//rf.Debug("AppendEntry from %v", args.LeaderID)
+	//rf.mu.Lock()
+	//defer rf.mu.Unlock()
+	//rf.currentTerm = args.Term
+	//rf.votedFor = -1
+	reply.Success = true
 }
 
 //
@@ -247,6 +259,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// Your initialization code here (2A, 2B, 2C).
 	go rf.heartbeat()
+	//go rf.run()
 	//go rf.appendEntry()
 
 	// initialize from state persisted before a crash
