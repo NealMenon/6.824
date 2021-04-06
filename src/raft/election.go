@@ -17,6 +17,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.VoteGranted = true
 		rf.currentTerm = args.Term
 		rf.Debug("Granting vote to %v for term %v", args.CandidateId, args.Term)
+		//go rf.AppendEntry()
 	}
 	reply.Term = rf.currentTerm
 }
@@ -93,11 +94,11 @@ func (rf *Raft) callElection() {
 			done = true
 			if rf.currentTerm == electionTerm {
 				rf.state = leaderState
-				rf.Debug("WIN; becoming leader for term %v", rf.currentTerm)
+				rf.Debug("WIN; Becoming leader for term %v", rf.currentTerm)
 			}
 			rf.mu.Unlock()
+			rf.GetState()
 			go rf.lead()
-			rf.Debug("After election for term %v, state is %v", electionTerm, rf.state)
 			//if rf.state == leaderState {
 			//	rf.lead()
 			//} else {

@@ -140,16 +140,15 @@ func (rf *Raft) heartbeat() {
 	}
 }
 
-//func (rf *Raft) AppendEntry(args *AppendEntryArgs, reply *AppendEntryReply) {
-//	rf.active <- true
-//	rf.Debug("AppendEntry from %v", args.LeaderID)
-//	reply.Success = true
-//}
+func (rf *Raft) AppendEntry() {
+	for {
+		rf.active <- true
+	}
+}
 
 // return currentTerm and whether this server
 // believes it is the leader.
 func (rf *Raft) GetState() (int, bool) {
-
 	var term int
 	var isleader bool
 	// Your code here (2A).
@@ -157,7 +156,7 @@ func (rf *Raft) GetState() (int, bool) {
 	defer rf.mu.Unlock()
 	term = rf.currentTerm
 	isleader = rf.state == leaderState
-	rf.Debug("GetState: %v, %v", term, isleader)
+	rf.Debug("GetState(term, state): %v, %v (0L 1C 2F)", term, rf.state)
 	return term, isleader
 }
 
@@ -184,30 +183,32 @@ func (rf *Raft) killed() bool {
 
 func (rf *Raft) lead() {
 	rf.Debug("Starting leader activities")
-	//rf.active <- true
-	rf.mu.Lock()
-	args := AppendEntryArgs{
-		Term:     rf.currentTerm,
-		LeaderID: rf.me,
+	for {
+		rf.active <- true
 	}
-	rf.mu.Unlock()
-	_, isLeader := rf.GetState()
-	rf.Debug("Deadlock averted")
-	for !rf.killed() && isLeader {
-		for server := 0; server < len(rf.peers); server++ {
-			if server == rf.me {
-				continue
-			}
-			go func(server int) {
-				//rf.Debug("Calling AppendEntries on %v", server)
-				ack := rf.callAppendEntries(server, &args)
-				if ack {
-					rf.active <- true
-				}
-			}(server)
-		}
-		time.Sleep(90 * time.Millisecond)
-	}
+	//rf.mu.Lock()
+	//args := AppendEntryArgs{
+	//	Term:     rf.currentTerm,
+	//	LeaderID: rf.me,
+	//}
+	//rf.mu.Unlock()
+	//_, isLeader := rf.GetState()
+	//rf.Debug("Deadlock averted. I'm still leader? %v", isLeader)
+	//for !rf.killed() && isLeader {
+	//	for server := 0; server < len(rf.peers); server++ {
+	//		if server == rf.me {
+	//			continue
+	//		}
+	//		go func(server int) {
+	//			//rf.Debug("Calling AppendEntries on %v", server)
+	//			ack := rf.callAppendEntries(server, &args)
+	//			if ack {
+	//				rf.active <- true
+	//			}
+	//		}(server)
+	//	}
+	//	time.Sleep(90 * time.Millisecond)
+	//}
 }
 func (rf *Raft) callAppendEntries(server int, args *AppendEntryArgs) bool {
 	reply := &AppendEntryReply{}
@@ -215,8 +216,6 @@ func (rf *Raft) callAppendEntries(server int, args *AppendEntryArgs) bool {
 	rf.peers[server].Call("Raft.AppendEntries", args, reply)
 	return reply.Success
 }
-
-//func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) {
 	rf.active <- true
