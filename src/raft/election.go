@@ -7,19 +7,20 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	rf.Debug("Voted requested by %v", args.CandidateId)
-	if rf.currentTerm > args.Term {
+	// Your code here (2A, 2B).
+	//go rf.AppendEntry()
+	reply.Term = rf.currentTerm
+	if rf.currentTerm >= args.Term {
 		reply.VoteGranted = false
+		return
 	}
 	if rf.votedFor == -1 {
-		// Your code here (2A, 2B).
 		rf.active <- true
 		rf.votedFor = args.CandidateId
 		reply.VoteGranted = true
 		rf.currentTerm = args.Term
 		rf.Debug("Granting vote to %v for term %v", args.CandidateId, args.Term)
-		//go rf.AppendEntry()
 	}
-	reply.Term = rf.currentTerm
 }
 
 //
@@ -59,23 +60,25 @@ func (rf *Raft) callRequestVote(server int, args *RequestVoteArgs) bool {
 }
 
 func (rf *Raft) callElection() {
+	electionTerm := rf.becomeCandidate()
+	rf.GetState()
 	rf.mu.Lock()
-	rf.currentTerm++
 	rf.Debug("Starting election for term %v", rf.currentTerm)
-	electionTerm := rf.currentTerm
-	rf.votedFor = rf.me
-	rf.state = candidateState
+	votes := 1
+	done := false
 
 	args := RequestVoteArgs{
 		Term:        rf.currentTerm,
 		CandidateId: rf.me,
 	}
-
-	votes := 1
-	done := false
+	if rf.state != candidateState {
+		return
+	}
 	rf.mu.Unlock()
-	a, b := rf.GetState()
-	rf.Debug("After election start: term, state =  %v, %v", a, b)
+
+	//a, b := rf.GetState()
+	//rf.Debug("After election start: term, state =  %v, %v", a, b)
+
 	for server := 0; server < len(rf.peers); server++ {
 		if server == rf.me {
 			continue
@@ -86,24 +89,61 @@ func (rf *Raft) callElection() {
 				return
 			}
 			rf.mu.Lock()
+			if rf.state != candidateState {
+				return
+			}
 			votes++
-			rf.Debug("Got vote from %v. total votes = %v", server, votes)
+			rf.Debug("Got vote from %v. Votes so far = %v", server, votes)
 			if done || votes <= len(rf.peers)/2 {
 				return
 			}
 			done = true
-			if rf.currentTerm == electionTerm {
-				rf.state = leaderState
-				rf.Debug("WIN; Becoming leader for term %v", rf.currentTerm)
-			}
+			win := rf.currentTerm == electionTerm && rf.state == candidateState
 			rf.mu.Unlock()
+			if win {
+				rf.GetState()
+				rf.Debug("Wins election for term %v", rf.currentTerm)
+				rf.becomeLeader()
+			}
 			rf.GetState()
-			go rf.lead()
-			//if rf.state == leaderState {
-			//	rf.lead()
-			//} else {
-			//	rf.mu.Unlock()
-			//}
 		}(server)
 	}
+}
+
+func (rf *Raft) becomeLeader() {
+	rf.mu.Lock()
+	if rf.state == leaderState {
+		return
+	}
+	rf.state = leaderState
+	rf.votedFor = -1
+	rf.active <- true
+
+	rf.Debug("Becoming leader for term %v", rf.currentTerm)
+	rf.mu.Unlock()
+	go rf.lead()
+}
+
+func (rf *Raft) becomeCandidate() int {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	rf.currentTerm++
+	rf.votedFor = rf.me
+	rf.state = candidateState
+	rf.active <- true
+	rf.Debug("Becoming candidate for term %v", rf.currentTerm)
+	return rf.currentTerm
+}
+
+func (rf *Raft) becomeFollower(newTerm int) {
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
+	if rf.state == followerState {
+		return
+	}
+	rf.state = followerState
+	rf.Debug("Becoming follower for term %v", rf.currentTerm)
+	rf.votedFor = -1
+	rf.currentTerm = newTerm
+	rf.active <- true
 }

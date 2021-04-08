@@ -28,8 +28,8 @@ import "../labrpc"
 
 const (
 	leaderState    = 0
-	followerState  = 1
-	candidateState = 2
+	candidateState = 1
+	followerState  = 2
 )
 
 type State int
@@ -128,7 +128,7 @@ type Raft struct {
 func (rf *Raft) heartbeat() {
 	for !rf.killed() {
 		rand.Seed(time.Now().UnixNano())
-		timeout := time.Duration(rand.Intn(250)+200) * time.Millisecond
+		timeout := time.Duration(rand.Intn(225)+275) * time.Millisecond
 		select {
 		case <-rf.active:
 			//rf.Debug("Still alive")
@@ -137,12 +137,6 @@ func (rf *Raft) heartbeat() {
 			go rf.callElection()
 			time.Sleep(50 * time.Millisecond)
 		}
-	}
-}
-
-func (rf *Raft) AppendEntry() {
-	for {
-		rf.active <- true
 	}
 }
 
@@ -183,32 +177,33 @@ func (rf *Raft) killed() bool {
 
 func (rf *Raft) lead() {
 	rf.Debug("Starting leader activities")
-	for {
-		rf.active <- true
+	rf.mu.Lock()
+	args := AppendEntryArgs{
+		Term:     rf.currentTerm,
+		LeaderID: rf.me,
 	}
-	//rf.mu.Lock()
-	//args := AppendEntryArgs{
-	//	Term:     rf.currentTerm,
-	//	LeaderID: rf.me,
-	//}
-	//rf.mu.Unlock()
-	//_, isLeader := rf.GetState()
-	//rf.Debug("Deadlock averted. I'm still leader? %v", isLeader)
-	//for !rf.killed() && isLeader {
-	//	for server := 0; server < len(rf.peers); server++ {
-	//		if server == rf.me {
-	//			continue
-	//		}
-	//		go func(server int) {
-	//			//rf.Debug("Calling AppendEntries on %v", server)
-	//			ack := rf.callAppendEntries(server, &args)
-	//			if ack {
-	//				rf.active <- true
-	//			}
-	//		}(server)
-	//	}
-	//	time.Sleep(90 * time.Millisecond)
-	//}
+	rf.mu.Unlock()
+	_, isLeader := rf.GetState()
+	rf.Debug("Deadlock averted. I'm still leader? %v", isLeader)
+	i := 0
+	for !rf.killed() /*&& i < 100*/ {
+		for server := 0; server < len(rf.peers); server++ {
+			if server == rf.me {
+				continue
+			}
+			go func(server int) {
+				//rf.Debug("Calling AppendEntries on [%v]", server)
+				ack := rf.callAppendEntries(server, &args)
+				if ack {
+					rf.active <- true
+				}
+			}(server)
+		}
+		rf.Debug("Finished %v rounds of leadership", i)
+		time.Sleep(50 * time.Millisecond)
+		//_, isLeader = rf.GetState()
+		i++
+	}
 }
 func (rf *Raft) callAppendEntries(server int, args *AppendEntryArgs) bool {
 	reply := &AppendEntryReply{}
@@ -219,7 +214,8 @@ func (rf *Raft) callAppendEntries(server int, args *AppendEntryArgs) bool {
 
 func (rf *Raft) AppendEntries(args *AppendEntryArgs, reply *AppendEntryReply) {
 	rf.active <- true
-	//rf.Debug("AppendEntry from %v", args.LeaderID)
+	rf.becomeFollower(args.Term)
+	rf.Debug("AppendEntry from %v", args.LeaderID)
 	//rf.mu.Lock()
 	//defer rf.mu.Unlock()
 	//rf.currentTerm = args.Term
@@ -250,13 +246,14 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	//rf.commitIndex = -1
 	//rf.lastApplied = -1
-	rf.state = followerState
+	//rf.state = followerState
 	rf.active = make(chan bool)
 
 	//rf.nextIndex = make([]int, 8)
 	//rf.matchIndex = make([]int, 8)
 
 	// Your initialization code here (2A, 2B, 2C).
+	go rf.becomeFollower(0)
 	go rf.heartbeat()
 	//go rf.run()
 	//go rf.appendEntry()
